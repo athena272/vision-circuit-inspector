@@ -1,0 +1,53 @@
+# Build da imagem do backend, push no Artifact Registry e deploy no Cloud Run.
+# Contexto de origem: a pasta backend/ (onde estao o Dockerfile e o src/).
+substitutions:
+  _REGION: us-central1
+  _REPO: circuit-inspector
+  _IMAGE: circuit-inspector-api
+  _SERVICE: circuit-inspector-api
+  _RUNTIME_SA: circuit-inspector-run@plated-shelter-495618-d9.iam.gserviceaccount.com
+
+steps:
+  - id: build-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+      - .
+
+  - id: push-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}
+
+  - id: deploy-cloud-run
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}
+      - --region=${_REGION}
+      - --platform=managed
+      - --service-account=${_RUNTIME_SA}
+      - --allow-unauthenticated
+      - --memory=1Gi
+      - --cpu=1
+      - --port=8080
+      - --quiet
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:${BUILD_ID}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_IMAGE}:latest
+
+# Build com SA propria exige logging fora do bucket padrao.
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s

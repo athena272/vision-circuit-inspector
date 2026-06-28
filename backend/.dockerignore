@@ -1,0 +1,18 @@
+# Mantem a imagem enxuta: so entram pyproject.toml, README.md e src/.
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+src/*.egg-info/
+.pytest_cache/
+tests/
+assets/
+debug_output/
+*.local
+
+# Artefatos de build/deploy que nao precisam ir para dentro da imagem.
+Dockerfile
+.dockerignore
+.gcloudignore
+cloudbuild.yaml
