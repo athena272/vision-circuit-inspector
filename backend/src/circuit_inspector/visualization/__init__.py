@@ -1,0 +1,1 @@
+"""Anotacao visual dos resultados."""

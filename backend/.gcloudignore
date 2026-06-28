@@ -1,0 +1,14 @@
+# Arquivos que NAO sao enviados ao Cloud Build como contexto de origem.
+# Mantemos pyproject.toml, README.md, src/, Dockerfile e cloudbuild.yaml.
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+src/*.egg-info/
+.pytest_cache/
+tests/
+assets/
+debug_output/
+*.local
+.git/

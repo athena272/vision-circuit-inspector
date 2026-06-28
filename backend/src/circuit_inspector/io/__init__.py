@@ -1,0 +1,1 @@
+"""Entrada/saida de imagens."""
