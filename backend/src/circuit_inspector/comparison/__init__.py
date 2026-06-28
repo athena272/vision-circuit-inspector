@@ -1,0 +1,1 @@
+"""Comparacao de placements."""
