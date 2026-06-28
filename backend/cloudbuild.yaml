@@ -7,6 +7,8 @@ substitutions:
   _IMAGE: circuit-inspector-api
   _SERVICE: circuit-inspector-api
   _RUNTIME_SA: circuit-inspector-run@plated-shelter-495618-d9.iam.gserviceaccount.com
+  # Origem do frontend liberada no CORS da API (sem barra final).
+  _FRONTEND_ORIGIN: https://vision-circuit-inspector.vercel.app
 
 steps:
   - id: build-image
@@ -42,6 +44,7 @@ steps:
       - --memory=1Gi
       - --cpu=1
       - --port=8080
+      - --set-env-vars=CIRCUIT_INSPECTOR_CORS_ORIGINS=${_FRONTEND_ORIGIN}
       - --quiet
 
 images:
