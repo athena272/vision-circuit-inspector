@@ -1,5 +1,6 @@
 # Build da imagem do backend, push no Artifact Registry e deploy no Cloud Run.
-# Contexto de origem: a pasta backend/ (onde estao o Dockerfile e o src/).
+# Acionado por gatilho: o Cloud Build clona o repositorio inteiro em /workspace,
+# por isso o passo de build roda dentro de backend/ (campo `dir`).
 substitutions:
   _REGION: us-central1
   _REPO: circuit-inspector
@@ -10,6 +11,7 @@ substitutions:
 steps:
   - id: build-image
     name: gcr.io/cloud-builders/docker
+    dir: backend
     args:
       - build
       - -t
