@@ -21,6 +21,7 @@ from ..models import (
     DifferenceKind,
     Hole,
 )
+from .registered import RegisteredDifference, RegisteredResult
 
 # j (topo) .. a (base) -> 0..9; usado apenas para ranquear deslocamento.
 _ROW_INDEX = {row: index for index, row in enumerate("jihgfedcba")}
@@ -74,3 +75,29 @@ def reduce_to_single(result: ComparisonResult) -> ComparisonResult:
     top = most_salient_difference(result)
     differences = () if top is None else (top,)
     return ComparisonResult(matched=result.matched, differences=differences)
+
+
+_REGISTERED_KIND_PRIORITY = {"mismatched": 2, "missing": 1, "extra": 1}
+
+
+def registered_difference_salience(diff: RegisteredDifference) -> tuple[int, float]:
+    """Pontua uma divergencia registrada para ordenacao (maior = mais relevante)."""
+    return (_REGISTERED_KIND_PRIORITY[diff.kind], diff.salience)
+
+
+def most_salient_registered_difference(
+    result: RegisteredResult,
+) -> RegisteredDifference | None:
+    """Retorna a divergencia registrada mais relevante, ou None."""
+    if not result.differences:
+        return None
+    return max(result.differences, key=registered_difference_salience)
+
+
+def reduce_registered_to_single(result: RegisteredResult) -> RegisteredResult:
+    """Reduz o resultado registrado a sua divergencia mais saliente."""
+    top = most_salient_registered_difference(result)
+    differences = () if top is None else (top,)
+    return RegisteredResult(
+        differences=differences, matched_count=result.matched_count
+    )

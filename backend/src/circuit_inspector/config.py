@@ -206,12 +206,24 @@ class OccupancyConfig:
       para o furo contar como ocupado / continuar vazio (histerese).
     - `min_cluster_strength`: soma minima de |ΔS| de um agrupamento para ser
       considerado uma diferenca real (descarta ruido de borda).
+    - `alignment_dilate_kernel`: dilatacao na subtracao para tolerar subpixel
+      de alinhamento SIFT.
+    - `pair_max_distance_frac`: fracao da diagonal usada como raio maximo para
+      parear clusters (gabarito x aluno).
+    - `min_salience_ratio`: descarta missing/extra abaixo desta fracao da
+      saliencia do cluster mais forte.
+    - `merge_cluster_distance_px`: funde blobs vizinhos da mesma cor antes de
+      parear (0 = desligado).
     """
 
     patch_radius_frac: float = 0.33
     occupied_delta: float = 40.0
     empty_delta: float = 15.0
     min_cluster_strength: float = 60.0
+    alignment_dilate_kernel: int = 9
+    pair_max_distance_frac: float = 0.12
+    min_salience_ratio: float = 0.20
+    merge_cluster_distance_px: int = 40
 
 
 @dataclass(frozen=True)

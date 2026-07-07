@@ -62,3 +62,23 @@ def save_bgr(path: str | Path, image: np.ndarray) -> None:
     if not ok:
         raise ImageLoadError(f"Falha ao codificar a imagem para: {out_path}")
     buffer.tofile(str(out_path))
+
+
+def encode_png_base64(image: np.ndarray, max_side: int = 960) -> str:
+    """Codifica uma imagem BGR em PNG base64, redimensionando se necessario."""
+    import base64
+
+    output = image
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    if longest > max_side > 0:
+        scale = max_side / longest
+        new_w = max(1, int(width * scale))
+        new_h = max(1, int(height * scale))
+        output = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    ok, buffer = cv2.imencode(".png", output)
+    if not ok:
+        raise ImageLoadError("Falha ao codificar a imagem para PNG.")
+    encoded = base64.b64encode(buffer.tobytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"

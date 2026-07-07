@@ -4,15 +4,6 @@ Alinha a foto do aluno sobre a do gabarito (`board.registration`) e compara a
 *ocupacao* (saturacao) pixel a pixel no frame ja alinhado. As regioes que mudam
 de ocupacao sao as diferencas; sao pareadas (gabarito x aluno) como componente
 que se moveu e anotadas de volta na foto original do aluno.
-
-Nao depende de calibracao manual nem da malha logica a..j: o referencial e a
-propria foto do gabarito. O rotulo e pela *cor* dominante da regiao alterada
-(heuristica honesta): distinguir resistor x LED de forma confiavel exigiria
-analise de forma do componente inteiro, fragil quando varios componentes
-coloridos ficam proximos.
-
-Limitacao: a ocupacao por saturacao cobre componentes *coloridos* (resistor,
-LED, jumpers). Corpos de baixa saturacao (LDR cinza, fio preto) nao entram.
 """
 
 from __future__ import annotations
@@ -33,6 +24,8 @@ from ..config import DEFAULT_CONFIG, OccupancyConfig
 Box = tuple[int, int, int, int]  # (x0, y0, x1, y1)
 _BOX_PADDING = 10
 
+REGISTERED_KIND_PRIORITY = {"mismatched": 2, "missing": 1, "extra": 1}
+
 
 @dataclass(frozen=True)
 class RegisteredDifference:
@@ -41,8 +34,8 @@ class RegisteredDifference:
     kind: str  # 'mismatched' | 'missing' | 'extra'
     label: str
     detail: str
-    expected_box: Box | None  # posicao no gabarito (verde)
-    actual_box: Box | None  # posicao no aluno (vermelho)
+    expected_box: Box | None
+    actual_box: Box | None
     salience: float
 
 
@@ -57,7 +50,7 @@ class RegisteredResult:
 
 
 @dataclass(frozen=True)
-class _Cluster:
+class Cluster:
     """Uma regiao alterada (diff) no frame do gabarito."""
 
     area: int
@@ -66,23 +59,47 @@ class _Cluster:
     label: str
 
 
-def _min_area(width: int, height: int) -> int:
+@dataclass(frozen=True)
+class RegisteredPipelineState:
+    """Estado intermediario do pipeline registrado (para auditoria e testes)."""
+
+    reference_bgr: np.ndarray
+    test_bgr: np.ndarray
+    test_aligned: np.ndarray
+    valid: np.ndarray
+    sat_ref_blur: np.ndarray
+    sat_test_blur: np.ndarray
+    fg_ref: np.ndarray
+    fg_test: np.ndarray
+    hue_ref: np.ndarray
+    hue_test: np.ndarray
+    only_ref: np.ndarray
+    only_test: np.ndarray
+    ref_clusters: tuple[Cluster, ...]
+    test_clusters: tuple[Cluster, ...]
+    homography: np.ndarray
+    homography_inv: np.ndarray
+    raw_differences: tuple[RegisteredDifference, ...]
+    result: RegisteredResult
+
+
+def min_area_for_image(width: int, height: int) -> int:
     return max(250, int(0.00025 * width * height))
 
 
-def _foreground(
+def foreground(
     image_bgr: np.ndarray, valid: np.ndarray, config: OccupancyConfig
-) -> tuple[np.ndarray, np.ndarray]:
-    """Mascara de ocupacao por saturacao (adaptativa) e o canal de matiz."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Mascara de ocupacao, canal de matiz e saturacao suavizada (filtro da media)."""
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-    sat = cv2.GaussianBlur(hsv[:, :, 1], (0, 0), 2)
-    background = float(np.median(sat[valid > 0])) if np.any(valid) else 0.0
-    fg = (sat > background + config.occupied_delta).astype(np.uint8) * 255
+    sat_blur = cv2.GaussianBlur(hsv[:, :, 1], (0, 0), 2)
+    background = float(np.median(sat_blur[valid > 0])) if np.any(valid) else 0.0
+    fg = (sat_blur > background + config.occupied_delta).astype(np.uint8) * 255
     fg = cv2.bitwise_and(fg, valid)
-    return fg, hsv[:, :, 0]
+    return fg, hsv[:, :, 0], sat_blur
 
 
-def _color_label(hue: float) -> str:
+def color_label(hue: float) -> str:
     if hue <= 12 or hue >= 168:
         return "componente vermelho"
     if 13 <= hue <= 24:
@@ -94,9 +111,9 @@ def _color_label(hue: float) -> str:
     return "componente"
 
 
-def _clusters(mask: np.ndarray, hue: np.ndarray, min_area: int) -> list[_Cluster]:
+def clusters_from_mask(mask: np.ndarray, hue: np.ndarray, min_area: int) -> list[Cluster]:
     count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
-    clusters: list[_Cluster] = []
+    found: list[Cluster] = []
     for i in range(1, count):
         area = int(stats[i, cv2.CC_STAT_AREA])
         if area < min_area:
@@ -106,80 +123,67 @@ def _clusters(mask: np.ndarray, hue: np.ndarray, min_area: int) -> list[_Cluster
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
         bh = int(stats[i, cv2.CC_STAT_HEIGHT])
         region_hue = float(np.median(hue[labels == i]))
-        clusters.append(
-            _Cluster(
+        found.append(
+            Cluster(
                 area=area,
                 centroid=(float(centroids[i][0]), float(centroids[i][1])),
                 bbox=(x, y, x + bw, y + bh),
-                label=_color_label(region_hue),
+                label=color_label(region_hue),
             )
         )
-    return clusters
+    return found
 
 
-def _count_components(foreground: np.ndarray, min_area: int) -> int:
-    count, _, stats, _ = cv2.connectedComponentsWithStats(foreground, 8)
-    return sum(1 for i in range(1, count) if stats[i, cv2.CC_STAT_AREA] >= min_area)
+def merge_nearby_clusters(items: list[Cluster], max_distance: int) -> list[Cluster]:
+    """Funde blobs vizinhos da mesma cor para reduzir fragmentacao por alinhamento."""
+    if max_distance <= 0 or len(items) < 2:
+        return items
+
+    merged: list[Cluster] = []
+    used = [False] * len(items)
+    for i, cluster in enumerate(items):
+        if used[i]:
+            continue
+        group = [cluster]
+        used[i] = True
+        for j in range(i + 1, len(items)):
+            if used[j]:
+                continue
+            other = items[j]
+            if cluster.label != other.label:
+                continue
+            if _distance(cluster.centroid, other.centroid) > max_distance:
+                continue
+            group.append(other)
+            used[j] = True
+        merged.append(_merge_cluster_group(group))
+    return merged
 
 
-def _map_box(box: Box, homography_inv: np.ndarray, padding: int = _BOX_PADDING) -> Box:
-    """Leva uma bbox do frame do gabarito para a foto original do aluno."""
-    x0, y0, x1, y1 = box
-    corners = np.float32([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]).reshape(-1, 1, 2)
-    mapped = cv2.perspectiveTransform(corners, homography_inv).reshape(-1, 2)
-    xs, ys = mapped[:, 0], mapped[:, 1]
-    return (
-        int(xs.min()) - padding,
-        int(ys.min()) - padding,
-        int(xs.max()) + padding,
-        int(ys.max()) + padding,
+def diff_masks(
+    fg_ref: np.ndarray,
+    fg_test: np.ndarray,
+    kernel_size: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    only_ref = cv2.morphologyEx(
+        cv2.subtract(fg_ref, cv2.dilate(fg_test, kernel)), cv2.MORPH_OPEN, kernel
     )
-
-
-def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
-    return float(np.hypot(a[0] - b[0], a[1] - b[1]))
-
-
-def _distance_cap(width: int, height: int) -> float:
-    return 0.5 * float(np.hypot(width, height))
-
-
-def compare_registered(
-    reference_bgr: np.ndarray,
-    test_bgr: np.ndarray,
-    registration_config: RegistrationConfig = RegistrationConfig(),
-    occupancy_config: OccupancyConfig = DEFAULT_CONFIG.occupancy,
-) -> RegisteredResult:
-    """Compara gabarito e aluno por registro automatico + diferenca de ocupacao."""
-    homography = estimate_registration(reference_bgr, test_bgr, registration_config)
-    height, width = reference_bgr.shape[:2]
-    test_aligned = warp_to_reference(test_bgr, homography, (width, height))
-    valid = reference_validity_mask(test_bgr.shape, homography, (width, height))
-
-    fg_ref, hue_ref = _foreground(reference_bgr, valid, occupancy_config)
-    fg_test, hue_test = _foreground(test_aligned, valid, occupancy_config)
-
-    kernel = np.ones((7, 7), np.uint8)
-    only_ref = cv2.morphologyEx(cv2.subtract(fg_ref, cv2.dilate(fg_test, kernel)), cv2.MORPH_OPEN, kernel)
-    only_test = cv2.morphologyEx(cv2.subtract(fg_test, cv2.dilate(fg_ref, kernel)), cv2.MORPH_OPEN, kernel)
-
-    min_area = _min_area(width, height)
-    ref_clusters = _clusters(only_ref, hue_ref, min_area)
-    test_clusters = _clusters(only_test, hue_test, min_area)
-    matched_count = _count_components(cv2.bitwise_and(fg_ref, fg_test), min_area)
-
-    homography_inv = np.linalg.inv(homography)
-    differences = _build_differences(
-        ref_clusters, test_clusters, homography_inv, _distance_cap(width, height)
+    only_test = cv2.morphologyEx(
+        cv2.subtract(fg_test, cv2.dilate(fg_ref, kernel)), cv2.MORPH_OPEN, kernel
     )
-    return RegisteredResult(differences=tuple(differences), matched_count=matched_count)
+    return only_ref, only_test
 
 
-def _build_differences(
-    ref_clusters: list[_Cluster],
-    test_clusters: list[_Cluster],
+def pair_max_distance(width: int, height: int, frac: float) -> float:
+    return frac * float(np.hypot(width, height))
+
+
+def build_differences(
+    ref_clusters: list[Cluster],
+    test_clusters: list[Cluster],
     homography_inv: np.ndarray,
-    pair_max_distance: float,
+    pair_max_dist: float,
 ) -> list[RegisteredDifference]:
     ref_sorted = sorted(ref_clusters, key=lambda c: c.area, reverse=True)
     test_sorted = sorted(test_clusters, key=lambda c: c.area, reverse=True)
@@ -187,7 +191,7 @@ def _build_differences(
     diffs: list[RegisteredDifference] = []
 
     for rc in ref_sorted:
-        best = _nearest(rc, test_sorted, used, pair_max_distance)
+        best = _nearest(rc, test_sorted, used, pair_max_dist)
         if best is not None:
             used.add(best)
             tc = test_sorted[best]
@@ -197,8 +201,8 @@ def _build_differences(
                     kind="mismatched",
                     label=label,
                     detail=f"{label}: mudou de posicao (verde = gabarito, vermelho = aluno).",
-                    expected_box=_map_box(rc.bbox, homography_inv),
-                    actual_box=_map_box(tc.bbox, homography_inv),
+                    expected_box=map_box(rc.bbox, homography_inv),
+                    actual_box=map_box(tc.bbox, homography_inv),
                     salience=float(rc.area + tc.area) + _distance(rc.centroid, tc.centroid),
                 )
             )
@@ -208,7 +212,7 @@ def _build_differences(
                     kind="missing",
                     label=rc.label,
                     detail=f"{rc.label}: presente no gabarito, ausente no aluno.",
-                    expected_box=_map_box(rc.bbox, homography_inv),
+                    expected_box=map_box(rc.bbox, homography_inv),
                     actual_box=None,
                     salience=float(rc.area),
                 )
@@ -223,24 +227,152 @@ def _build_differences(
                 label=tc.label,
                 detail=f"{tc.label}: presente no aluno, ausente no gabarito.",
                 expected_box=None,
-                actual_box=_map_box(tc.bbox, homography_inv),
+                actual_box=map_box(tc.bbox, homography_inv),
                 salience=float(tc.area),
             )
         )
 
-    # Uma troca de posicao (mismatched) e mais informativa que faltando/sobrando
-    # (que costumam ser artefatos); por isso o tipo domina a magnitude.
-    diffs.sort(key=lambda d: (_KIND_PRIORITY[d.kind], d.salience), reverse=True)
+    diffs.sort(
+        key=lambda d: (REGISTERED_KIND_PRIORITY[d.kind], d.salience), reverse=True
+    )
     return diffs
 
 
-_KIND_PRIORITY = {"mismatched": 2, "missing": 1, "extra": 1}
+def filter_differences_by_salience(
+    differences: list[RegisteredDifference],
+    min_ratio: float,
+) -> list[RegisteredDifference]:
+    """Descarta missing/extra fracos em relacao ao cluster mais saliente."""
+    if not differences or min_ratio <= 0:
+        return differences
+    top_salience = max(d.salience for d in differences)
+    if top_salience <= 0:
+        return differences
+    threshold = top_salience * min_ratio
+    kept: list[RegisteredDifference] = []
+    for diff in differences:
+        if diff.kind == "mismatched":
+            kept.append(diff)
+        elif diff.salience >= threshold:
+            kept.append(diff)
+    kept.sort(
+        key=lambda d: (REGISTERED_KIND_PRIORITY[d.kind], d.salience), reverse=True
+    )
+    return kept
+
+
+def map_box(box: Box, homography_inv: np.ndarray, padding: int = _BOX_PADDING) -> Box:
+    x0, y0, x1, y1 = box
+    corners = np.float32([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]).reshape(-1, 1, 2)
+    mapped = cv2.perspectiveTransform(corners, homography_inv).reshape(-1, 2)
+    xs, ys = mapped[:, 0], mapped[:, 1]
+    return (
+        int(xs.min()) - padding,
+        int(ys.min()) - padding,
+        int(xs.max()) + padding,
+        int(ys.max()) + padding,
+    )
+
+
+def run_registered_pipeline(
+    reference_bgr: np.ndarray,
+    test_bgr: np.ndarray,
+    registration_config: RegistrationConfig = RegistrationConfig(),
+    occupancy_config: OccupancyConfig = DEFAULT_CONFIG.occupancy,
+) -> RegisteredPipelineState:
+    """Executa o pipeline registrado e devolve estado intermediario + resultado."""
+    homography = estimate_registration(reference_bgr, test_bgr, registration_config)
+    height, width = reference_bgr.shape[:2]
+    test_aligned = warp_to_reference(test_bgr, homography, (width, height))
+    valid = reference_validity_mask(test_bgr.shape, homography, (width, height))
+
+    fg_ref, hue_ref, sat_ref_blur = foreground(reference_bgr, valid, occupancy_config)
+    fg_test, hue_test, sat_test_blur = foreground(test_aligned, valid, occupancy_config)
+
+    only_ref, only_test = diff_masks(
+        fg_ref, fg_test, occupancy_config.alignment_dilate_kernel
+    )
+
+    min_area = min_area_for_image(width, height)
+    ref_clusters = merge_nearby_clusters(
+        clusters_from_mask(only_ref, hue_ref, min_area),
+        occupancy_config.merge_cluster_distance_px,
+    )
+    test_clusters = merge_nearby_clusters(
+        clusters_from_mask(only_test, hue_test, min_area),
+        occupancy_config.merge_cluster_distance_px,
+    )
+
+    matched_count = _count_components(cv2.bitwise_and(fg_ref, fg_test), min_area)
+    homography_inv = np.linalg.inv(homography)
+    max_pair_dist = pair_max_distance(
+        width, height, occupancy_config.pair_max_distance_frac
+    )
+    raw = build_differences(ref_clusters, test_clusters, homography_inv, max_pair_dist)
+    filtered = filter_differences_by_salience(raw, occupancy_config.min_salience_ratio)
+    result = RegisteredResult(differences=tuple(filtered), matched_count=matched_count)
+
+    return RegisteredPipelineState(
+        reference_bgr=reference_bgr,
+        test_bgr=test_bgr,
+        test_aligned=test_aligned,
+        valid=valid,
+        sat_ref_blur=sat_ref_blur,
+        sat_test_blur=sat_test_blur,
+        fg_ref=fg_ref,
+        fg_test=fg_test,
+        hue_ref=hue_ref,
+        hue_test=hue_test,
+        only_ref=only_ref,
+        only_test=only_test,
+        ref_clusters=tuple(ref_clusters),
+        test_clusters=tuple(test_clusters),
+        homography=homography,
+        homography_inv=homography_inv,
+        raw_differences=tuple(raw),
+        result=result,
+    )
+
+
+def compare_registered(
+    reference_bgr: np.ndarray,
+    test_bgr: np.ndarray,
+    registration_config: RegistrationConfig = RegistrationConfig(),
+    occupancy_config: OccupancyConfig = DEFAULT_CONFIG.occupancy,
+) -> RegisteredResult:
+    """Compara gabarito e aluno por registro automatico + diferenca de ocupacao."""
+    return run_registered_pipeline(
+        reference_bgr, test_bgr, registration_config, occupancy_config
+    ).result
+
+
+def _count_components(foreground_mask: np.ndarray, min_area: int) -> int:
+    count, _, stats, _ = cv2.connectedComponentsWithStats(foreground_mask, 8)
+    return sum(1 for i in range(1, count) if stats[i, cv2.CC_STAT_AREA] >= min_area)
+
+
+def _distance(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return float(np.hypot(a[0] - b[0], a[1] - b[1]))
+
+
+def _merge_cluster_group(group: list[Cluster]) -> Cluster:
+    xs0 = [c.bbox[0] for c in group]
+    ys0 = [c.bbox[1] for c in group]
+    xs1 = [c.bbox[2] for c in group]
+    ys1 = [c.bbox[3] for c in group]
+    cx = sum(c.centroid[0] for c in group) / len(group)
+    cy = sum(c.centroid[1] for c in group) / len(group)
+    return Cluster(
+        area=sum(c.area for c in group),
+        centroid=(cx, cy),
+        bbox=(min(xs0), min(ys0), max(xs1), max(ys1)),
+        label=group[0].label,
+    )
 
 
 def _nearest(
-    comp: _Cluster, candidates: list[_Cluster], used: set[int], max_distance: float
+    comp: Cluster, candidates: list[Cluster], used: set[int], max_distance: float
 ) -> int | None:
-    """Indice do candidato nao usado mais proximo (preferindo mesma cor)."""
     best, best_key = None, None
     for i, other in enumerate(candidates):
         if i in used:
