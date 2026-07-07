@@ -137,38 +137,63 @@
   height: auto;
 }
 
-.marker {
+.overlay__svg {
   position: absolute;
-  box-sizing: border-box;
-  border: 2px solid;
-  border-radius: 4px;
+  inset: 0;
   pointer-events: none;
 }
 
-.marker--expected {
-  border-color: #2e9e4f;
-}
-.marker--actual {
-  border-color: #e0392b;
+.overlay__rect {
+  fill: none;
+  stroke-width: 4;
 }
 
-.marker__label {
-  position: absolute;
-  top: -1.25rem;
-  left: -2px;
-  font-size: 0.7rem;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 3px;
-  white-space: nowrap;
-  color: #fff;
+.overlay__rect--expected {
+  stroke: #2e9e4f;
+  fill: rgba(46, 158, 79, 0.12);
+  stroke-dasharray: 8 5;
 }
 
-.marker--expected .marker__label {
-  background: #2e9e4f;
+.overlay__rect--actual {
+  stroke: #e0392b;
+  fill: rgba(224, 57, 43, 0.14);
 }
-.marker--actual .marker__label {
-  background: #e0392b;
+
+.overlay__ring {
+  fill: none;
+  stroke-width: 4;
+}
+
+.overlay__ring--expected {
+  stroke: #2e9e4f;
+  stroke-dasharray: 6 4;
+}
+
+.overlay__ring--actual {
+  stroke: #e0392b;
+}
+
+.overlay__arrow-line {
+  stroke: #f0b429;
+  stroke-width: 3;
+  stroke-dasharray: 7 5;
+}
+
+.overlay__arrow-head {
+  fill: #f0b429;
+}
+
+.overlay__badge rect {
+  fill: rgba(18, 18, 18, 0.88);
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1;
+}
+
+.overlay__badge text {
+  fill: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
 }
 
 /* Lista de diferencas */

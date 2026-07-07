@@ -105,10 +105,10 @@ def iter_registered_audit(
             5,
             "Binarizacao",
             (
-                "Convertemos a saturacao em mascaras binarias: branco = regiao "
-                "ocupada por componente, preto = fundo ou furo vazio."
+                "Convertemos saturacao e corpos escuros (botao/capacitor) em mascaras "
+                "binarias: branco = regiao ocupada, preto = fundo ou furo vazio."
             ),
-            _compose_binarization(state.fg_ref, state.fg_test),
+            _compose_binarization(state.fg_ref, state.fg_test, state.dark_fg_ref, state.dark_fg_test),
         ),
         (
             6,
@@ -177,9 +177,18 @@ def _compose_mean_filter(sat_ref: np.ndarray, sat_test: np.ndarray) -> np.ndarra
     return np.hstack([ref_vis, gap, test_vis])
 
 
-def _compose_binarization(fg_ref: np.ndarray, fg_test: np.ndarray) -> np.ndarray:
+def _compose_binarization(
+    fg_ref: np.ndarray,
+    fg_test: np.ndarray,
+    dark_ref: np.ndarray | None = None,
+    dark_test: np.ndarray | None = None,
+) -> np.ndarray:
     ref_bgr = cv2.cvtColor(fg_ref, cv2.COLOR_GRAY2BGR)
     test_bgr = cv2.cvtColor(fg_test, cv2.COLOR_GRAY2BGR)
+    if dark_ref is not None and np.any(dark_ref):
+        ref_bgr[dark_ref > 0] = (180, 80, 40)
+    if dark_test is not None and np.any(dark_test):
+        test_bgr[dark_test > 0] = (180, 80, 40)
     gap = np.full((fg_ref.shape[0], 8, 3), 200, np.uint8)
     return np.hstack([ref_bgr, gap, test_bgr])
 

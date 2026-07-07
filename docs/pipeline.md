@@ -34,16 +34,20 @@ sobrando).
 ## 4. Filtro da media
 
 Antes de decidir o que e componente e o que e fundo, aplicamos um **filtro
-gaussiano** no canal de **saturacao** (HSV).
+gaussiano** no canal de **saturacao** (HSV). Componentes escuros (botao,
+capacitor) entram por um **canal complementar** de corpo escuro (forma +
+cor `dark_body`).
 
 **Por que importa:** reduz ruido da camera e realca fios e corpos coloridos
-(LED, resistor, jumpers) sobre o plastico bege da protoboard.
+(LED, resistor, jumpers) sobre o plastico bege da protoboard, sem perder
+corpos pretos de baixa saturacao.
 
 ## 5. Binarizacao
 
-Convertemos a saturacao filtrada em **mascaras binarias**:
+Convertemos saturacao e corpos escuros em **mascaras binarias**:
 
 - **Branco** — regiao ocupada por componente colorido
+- **Marrom** (auditoria) — botao ou capacitor detectado pelo canal escuro
 - **Preto** — fundo ou furo vazio
 
 Comparamos as mascaras do gabarito e do aluno para isolar o que mudou.
@@ -51,8 +55,8 @@ Comparamos as mascaras do gabarito e do aluno para isolar o que mudou.
 ## 6. Extracao de caracteristicas
 
 Agrupamos os pixels alterados em **clusters** (regioes conectadas), rotulamos
-pela cor dominante (ex.: "componente azul", "componente laranja") e pareamos
-regioes proximas entre gabarito e aluno.
+pela cor dominante ou forma (ex.: "componente resistor", "componente azul",
+"botao", "capacitor") e pareamos regioes proximas entre gabarito e aluno.
 
 O par mais **saliente** vira a **divergencia principal** exibida na interface.
 
@@ -67,11 +71,12 @@ Fotos reais geram artefatos de alinhamento. O sistema aplica:
 
 ## Limitacoes
 
-- Componentes de **baixa saturacao** (fio preto, LDR cinza) sao dificeis de ver
-  por este metodo.
+- **Fio preto** e LDR cinza continuam dificeis (baixa saturacao e formato
+  alongado).
+- **Botao e capacitor** passam a ser detectaveis pelo canal de corpo escuro.
 - Funciona melhor com fotos **top-down**, mesma placa e iluminacao parecida.
-- O rotulo e pela **cor**, nao pelo tipo exato (resistor vs LED) quando a regiao
-  de diferenca e pequena.
+- Resistor (corpo azul-esverdeado) e LED azul sao distinguidos pela faixa de
+  matiz (resistor ~86–104, LED ~105–135).
 
 Para modos alternativos (deteccao por tipo, malha calibrada), veja
 [desenvolvimento.md](desenvolvimento.md).

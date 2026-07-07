@@ -214,6 +214,12 @@ class OccupancyConfig:
       saliencia do cluster mais forte.
     - `merge_cluster_distance_px`: funde blobs vizinhos da mesma cor antes de
       parear (0 = desligado).
+    - `include_dark_bodies`: inclui botao/capacitor via mascara de corpo escuro.
+    - `dark_s_max`: saturacao maxima para contar pixel como corpo escuro.
+    - `mismatch_min_displacement_px`: abaixo disso, salience de mismatched e
+      penalizada (artefato de alinhamento).
+    - `diff_cluster_min_area`/`diff_cluster_area_frac`: limiar menor para blobs
+      em mascaras de diferenca (fios finos).
     """
 
     patch_radius_frac: float = 0.33
@@ -224,6 +230,11 @@ class OccupancyConfig:
     pair_max_distance_frac: float = 0.12
     min_salience_ratio: float = 0.20
     merge_cluster_distance_px: int = 40
+    include_dark_bodies: bool = True
+    dark_s_max: int = 80
+    diff_cluster_min_area: int = 200
+    diff_cluster_area_frac: float = 0.00005
+    mismatch_min_displacement_px: float = 40.0
 
 
 @dataclass(frozen=True)

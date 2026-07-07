@@ -8,10 +8,15 @@ from circuit_inspector.comparison.registered import (
     Cluster,
     build_differences,
     clusters_from_mask,
+    color_bbox_on_image,
     color_label,
     filter_differences_by_salience,
     map_box,
     merge_nearby_clusters,
+    refine_cluster_bbox,
+    refine_clusters,
+    refine_difference_boxes,
+    _is_gutter_artifact,
     _nearest,
 )
 from circuit_inspector.comparison.selection import reduce_registered_to_single
@@ -26,7 +31,12 @@ class TestColorLabel:
         assert color_label(2) == "componente vermelho"
         assert color_label(175) == "componente vermelho"
 
+    def test_resistor(self) -> None:
+        assert color_label(95) == "componente resistor"
+        assert color_label(104) == "componente resistor"
+
     def test_blue(self) -> None:
+        assert color_label(105) == "componente azul"
         assert color_label(110) == "componente azul"
 
     def test_green(self) -> None:
@@ -82,7 +92,8 @@ class TestBuildDifferences:
             self._cluster(800, 800, "componente vermelho", area=9000),
         ]
         diffs = build_differences(ref, test, np.eye(3), pair_max_dist=100)
-        assert diffs[0].kind == "mismatched"
+        assert diffs[0].kind == "extra"
+        assert diffs[0].label == "componente vermelho"
 
 
 class TestNearest:
@@ -119,3 +130,78 @@ class TestReduceRegistered:
         reduced = reduce_registered_to_single(result)
         assert len(reduced.differences) == 1
         assert reduced.differences[0].kind == "mismatched"
+
+    def test_prefers_higher_salience_over_kind(self) -> None:
+        result = RegisteredResult(
+            differences=(
+                RegisteredDifference("mismatched", "a", "", None, None, 500.0),
+                RegisteredDifference("extra", "b", "", None, None, 2000.0),
+            ),
+            matched_count=2,
+        )
+        reduced = reduce_registered_to_single(result)
+        assert reduced.differences[0].kind == "extra"
+
+
+class TestRefineClusters:
+    def test_detects_gutter_artifact(self) -> None:
+        assert _is_gutter_artifact((0, 0, 900, 30)) is True
+        assert _is_gutter_artifact((0, 0, 40, 80)) is False
+
+    def test_tightens_bbox_to_diff_pixels(self) -> None:
+        mask = np.zeros((120, 120), np.uint8)
+        mask[50:55, 70:74] = 255
+        cluster = Cluster(
+            area=20,
+            centroid=(72.0, 52.5),
+            bbox=(60, 40, 90, 70),
+            label="componente laranja",
+        )
+        image = np.zeros((120, 120, 3), np.uint8)
+        bbox = refine_cluster_bbox(cluster, mask, image)
+        assert bbox == (70, 50, 74, 55)
+
+    def test_drops_gutter_without_wire_color(self) -> None:
+        mask = np.zeros((80, 1000), np.uint8)
+        mask[40:45, 10:990] = 255
+        cluster = Cluster(
+            area=5000,
+            centroid=(500.0, 42.5),
+            bbox=(10, 40, 990, 45),
+            label="componente laranja",
+        )
+        image = np.zeros((80, 1000, 3), np.uint8)
+        refined = refine_clusters([cluster], mask, image)
+        assert refined == []
+
+
+class TestColorBboxOnImage:
+    def test_finds_largest_color_blob_with_hint(self) -> None:
+        image = np.zeros((200, 300, 3), np.uint8)
+        image[35:55, 180:280] = (0, 140, 255)
+        image[120:128, 20:60] = (0, 140, 255)
+        bbox = color_bbox_on_image(
+            image,
+            "componente laranja",
+            hint_box=(200, 30, 220, 60),
+        )
+        assert bbox is not None
+        assert bbox[0] <= 180
+        assert bbox[2] >= 280
+
+    def test_refines_extra_difference_to_student_color_bbox(self) -> None:
+        student = np.zeros((200, 300, 3), np.uint8)
+        student[120:132, 20:90] = (0, 140, 255)
+        reference = np.zeros((200, 300, 3), np.uint8)
+        diff = RegisteredDifference(
+            kind="extra",
+            label="componente laranja",
+            detail="",
+            expected_box=None,
+            actual_box=(190, 35, 210, 55),
+            salience=100.0,
+        )
+        refined = refine_difference_boxes(diff, student, reference)
+        assert refined.actual_box is not None
+        assert refined.actual_box[2] - refined.actual_box[0] > 40
+

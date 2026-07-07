@@ -21,7 +21,7 @@ from ..models import (
     DifferenceKind,
     Hole,
 )
-from .registered import RegisteredDifference, RegisteredResult
+from .registered import RegisteredDifference, RegisteredResult, _rank_salience
 
 # j (topo) .. a (base) -> 0..9; usado apenas para ranquear deslocamento.
 _ROW_INDEX = {row: index for index, row in enumerate("jihgfedcba")}
@@ -80,9 +80,15 @@ def reduce_to_single(result: ComparisonResult) -> ComparisonResult:
 _REGISTERED_KIND_PRIORITY = {"mismatched": 2, "missing": 1, "extra": 1}
 
 
-def registered_difference_salience(diff: RegisteredDifference) -> tuple[int, float]:
-    """Pontua uma divergencia registrada para ordenacao (maior = mais relevante)."""
-    return (_REGISTERED_KIND_PRIORITY[diff.kind], diff.salience)
+def registered_difference_salience(diff: RegisteredDifference) -> tuple[float, int]:
+    """Pontua uma divergencia registrada para ordenacao (maior = mais relevante).
+
+    A magnitude (area do blob de diferenca) vem primeiro: um extra/missing
+    grande costuma ser o erro real do aluno; mismatched pequenos podem ser
+    artefato de alinhamento. O tipo serve apenas como desempate.
+    """
+    salience = _rank_salience(diff)
+    return (salience, _REGISTERED_KIND_PRIORITY[diff.kind])
 
 
 def most_salient_registered_difference(
