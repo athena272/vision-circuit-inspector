@@ -64,6 +64,20 @@ def save_bgr(path: str | Path, image: np.ndarray) -> None:
     buffer.tofile(str(out_path))
 
 
+def limit_image_side(image: np.ndarray, max_side: int) -> np.ndarray:
+    """Reduz a imagem para caber em `max_side` px (maior aresta), preservando proporcao."""
+    if max_side <= 0:
+        return image
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    if longest <= max_side:
+        return image
+    scale = max_side / longest
+    new_w = max(1, int(width * scale))
+    new_h = max(1, int(height * scale))
+    return cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+
 def encode_png_base64(image: np.ndarray, max_side: int = 960) -> str:
     """Codifica uma imagem BGR em PNG base64, redimensionando se necessario."""
     import base64

@@ -9,14 +9,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from ..board.registration import RegistrationError
+from ..comparison.box_scale import scale_registered_result
 from ..comparison.registered_audit import compare_registered_with_audit
-from ..io.image_loader import ImageLoadError, decode_bgr
+from ..io.image_loader import ImageLoadError, decode_bgr, limit_image_side
 from .mappers import to_compare_response
 from .schemas import CompareResponse, HealthResponse
 from .streaming import stream_compare_events
 
 _DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 _MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+
+def _max_processing_side() -> int:
+    return int(os.getenv("CIRCUIT_INSPECTOR_MAX_PROCESSING_SIDE", "2048"))
+
+
+def _prepare_images(reference_bgr, test_bgr):
+    """Reduz fotos grandes antes do pipeline e calcula fator para reescalar caixas."""
+    orig_h, orig_w = test_bgr.shape[:2]
+    max_side = _max_processing_side()
+    ref = limit_image_side(reference_bgr, max_side)
+    test = limit_image_side(test_bgr, max_side)
+    scale_x = orig_w / test.shape[1]
+    scale_y = orig_h / test.shape[0]
+    return ref, test, orig_w, orig_h, scale_x, scale_y
 
 
 def _allowed_origins() -> list[str]:
@@ -76,9 +92,12 @@ def create_app() -> FastAPI:
     ) -> CompareResponse:
         reference_bgr = await _read_image(reference, "reference")
         test_bgr = await _read_image(test, "test")
+        ref, tst, orig_w, orig_h, scale_x, scale_y = _prepare_images(
+            reference_bgr, test_bgr
+        )
 
         try:
-            audit = compare_registered_with_audit(reference_bgr, test_bgr)
+            audit = compare_registered_with_audit(ref, tst)
         except RegistrationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -88,11 +107,11 @@ def create_app() -> FastAPI:
                 ),
             ) from exc
 
-        height, width = test_bgr.shape[:2]
+        scaled = scale_registered_result(audit.result, scale_x, scale_y)
         return to_compare_response(
-            audit.result,
-            width,
-            height,
+            scaled,
+            orig_w,
+            orig_h,
             single_error=not all,
             audit=audit if include_audit else None,
         )
@@ -105,11 +124,20 @@ def create_app() -> FastAPI:
     ) -> StreamingResponse:
         reference_bgr = await _read_image(reference, "reference")
         test_bgr = await _read_image(test, "test")
+        ref, tst, orig_w, orig_h, scale_x, scale_y = _prepare_images(
+            reference_bgr, test_bgr
+        )
 
         async def event_generator():
             try:
                 async for event in stream_compare_events(
-                    reference_bgr, test_bgr, single_error=not all
+                    ref,
+                    tst,
+                    orig_w,
+                    orig_h,
+                    scale_x,
+                    scale_y,
+                    single_error=not all,
                 ):
                     yield event
             except RegistrationError as exc:

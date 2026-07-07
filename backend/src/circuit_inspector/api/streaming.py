@@ -47,13 +47,18 @@ def build_complete_event(
     test_width: int,
     test_height: int,
     single_error: bool,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
 ) -> dict:
+    from ..comparison.box_scale import scale_registered_result
+
+    scaled = scale_registered_result(audit.result, scale_x, scale_y)
     result = to_compare_response(
-        audit.result,
+        scaled,
         test_width,
         test_height,
         single_error=single_error,
-        audit=audit,
+        audit=None,
     )
     return {
         "type": "complete",
@@ -66,6 +71,10 @@ def build_complete_event(
 async def stream_compare_events(
     reference_bgr: np.ndarray,
     test_bgr: np.ndarray,
+    test_width: int,
+    test_height: int,
+    scale_x: float,
+    scale_y: float,
     single_error: bool,
 ) -> AsyncIterator[str]:
     """Gera eventos SSE conforme cada etapa do pipeline e conclui com o resultado."""
@@ -76,7 +85,15 @@ async def stream_compare_events(
                 elapsed_ms = int((time.perf_counter() - start) * 1000)
                 yield _sse_event(build_step_event(item, elapsed_ms))
             elif isinstance(item, RegisteredAudit):
-                height, width = test_bgr.shape[:2]
-                yield _sse_event(build_complete_event(item, width, height, single_error))
+                yield _sse_event(
+                    build_complete_event(
+                        item,
+                        test_width,
+                        test_height,
+                        single_error,
+                        scale_x,
+                        scale_y,
+                    )
+                )
     except Exception as exc:
         yield _sse_event({"type": "error", "message": str(exc)})
