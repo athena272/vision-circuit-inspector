@@ -150,3 +150,4 @@ build/
 # Artefatos de execucao do Circuit Inspector
 debug_output/
 *.out.png
+/imagens-locais
