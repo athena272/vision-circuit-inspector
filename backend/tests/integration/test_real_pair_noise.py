@@ -12,12 +12,16 @@ from circuit_inspector.io.image_loader import load_bgr
 
 ASSETS = Path(__file__).resolve().parents[2] / "assets"
 
+PAIR_KIND_EXPECTATIONS: dict[int, str] = {
+    5: "missing",
+}
+
 PAIR_EXPECTATIONS: dict[int, str] = {
     1: "componente azul",
     2: "componente laranja",
     3: "componente resistor",
     4: "componente resistor",
-    5: "componente azul",
+    5: "componente resistor",
     6: "componente laranja",
     7: "componente azul",
     8: "componente azul",
@@ -58,3 +62,8 @@ def test_real_pair_primary_difference(n: int, expected_label: str) -> None:
     assert single.differences[0].label == expected_label, (
         f"Par {n}: esperado {expected_label!r}, obteve {single.differences[0].label!r}"
     )
+    if n in PAIR_KIND_EXPECTATIONS:
+        expected_kind = PAIR_KIND_EXPECTATIONS[n]
+        assert single.differences[0].kind == expected_kind, (
+            f"Par {n}: esperado tipo {expected_kind!r}, obteve {single.differences[0].kind!r}"
+        )

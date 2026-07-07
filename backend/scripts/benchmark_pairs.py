@@ -21,7 +21,7 @@ PAIR_EXPECTATIONS: dict[int, str] = {
     2: "componente laranja",
     3: "componente resistor",
     4: "componente resistor",
-    5: "componente azul",
+    5: "componente resistor",
     6: "componente laranja",
     7: "componente azul",
     8: "componente azul",

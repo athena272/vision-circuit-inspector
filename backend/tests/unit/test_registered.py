@@ -176,7 +176,7 @@ class TestRefineClusters:
 
 
 class TestColorBboxOnImage:
-    def test_finds_largest_color_blob_with_hint(self) -> None:
+    def test_finds_nearest_color_blob_with_hint(self) -> None:
         image = np.zeros((200, 300, 3), np.uint8)
         image[35:55, 180:280] = (0, 140, 255)
         image[120:128, 20:60] = (0, 140, 255)

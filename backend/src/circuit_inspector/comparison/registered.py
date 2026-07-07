@@ -42,6 +42,12 @@ def _rank_salience(diff: RegisteredDifference) -> float:
         and salience < 2000
     ):
         salience *= 12.0
+    if (
+        diff.label == "componente resistor"
+        and diff.kind == "missing"
+        and salience < 5000
+    ):
+        salience *= 12.0
     return salience
 
 
@@ -305,6 +311,15 @@ def refine_cluster_bbox(
     )
 
 
+def _is_bottom_band_artifact(
+    bbox: Box, image_height: int, label: str, area: int
+) -> bool:
+    """Descarta fios laranja espurios na faixa inferior da foto (costura da placa)."""
+    if label != "componente laranja" or area >= 3000:
+        return False
+    return bbox[1] >= int(0.86 * image_height)
+
+
 def refine_clusters(
     clusters: list[Cluster],
     diff_mask: np.ndarray,
@@ -312,8 +327,13 @@ def refine_clusters(
     colors: ColorProfiles | None = None,
 ) -> list[Cluster]:
     """Refina caixas para apontamento visual e remove artefatos de costura."""
+    image_height = diff_mask.shape[0]
     refined: list[Cluster] = []
     for cluster in clusters:
+        if _is_bottom_band_artifact(
+            cluster.bbox, image_height, cluster.label, cluster.area
+        ):
+            continue
         if _is_gutter_artifact(cluster.bbox):
             bbox = refine_cluster_bbox(
                 cluster, diff_mask, aligned_bgr, colors, require_color=True
@@ -430,11 +450,6 @@ def refine_difference_boxes(
     expected = diff.expected_box
     actual = diff.actual_box
 
-    if diff.kind in ("missing", "mismatched") and expected is not None:
-        refined = color_bbox_on_image(reference_bgr, diff.label, expected, palette)
-        if refined is not None:
-            expected = refined
-
     if diff.kind in ("extra", "mismatched") and actual is not None:
         refined = color_bbox_on_image(student_bgr, diff.label, actual, palette)
         if refined is not None:
@@ -478,7 +493,7 @@ def color_bbox_on_image(
             area = cv2.contourArea(contour)
             x, y, bw, bh = cv2.boundingRect(contour)
             dist = float(np.hypot(x + bw / 2.0 - hx, y + bh / 2.0 - hy))
-            return (-area, dist)
+            return (dist, -area)
 
         contour = min(contours, key=rank)
     else:
@@ -532,6 +547,9 @@ def build_differences(
                 )
             )
         else:
+            salience = float(rc.area)
+            if rc.label == "componente resistor" and salience < 5000:
+                salience *= 12.0
             diffs.append(
                 RegisteredDifference(
                     kind="missing",
@@ -539,7 +557,7 @@ def build_differences(
                     detail=f"{rc.label}: presente no gabarito, ausente no aluno.",
                     expected_box=map_box(rc.bbox, homography_inv, image_size=image_size),
                     actual_box=None,
-                    salience=float(rc.area),
+                    salience=salience,
                 )
             )
 
