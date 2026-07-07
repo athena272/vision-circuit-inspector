@@ -1,18 +1,24 @@
 /**
  * Faixa de feedback do estado atual da comparacao.
  */
+import type { CompareProgressState, CompareResponse } from '../api/types'
 import type { CompareStatus } from '../hooks/useCompare'
-import type { CompareResponse } from '../api/types'
+import { CompareProgress } from './CompareProgress'
 
 interface StatusBannerProps {
   status: CompareStatus
   result: CompareResponse | null
   error: string | null
+  progress: CompareProgressState | null
 }
 
-export function StatusBanner({ status, result, error }: StatusBannerProps) {
+export function StatusBanner({ status, result, error, progress }: StatusBannerProps) {
+  if (status === 'loading' && progress) {
+    return <CompareProgress progress={progress} />
+  }
+
   if (status === 'loading') {
-    return <div className="banner banner--info">Comparando imagens...</div>
+    return <div className="banner banner--info">Iniciando comparacao...</div>
   }
 
   if (status === 'error') {
@@ -27,12 +33,10 @@ export function StatusBanner({ status, result, error }: StatusBannerProps) {
         </div>
       )
     }
-    const count = result.differences.length
     return (
       <div className="banner banner--warning">
-        {count === 1
-          ? '1 divergencia detectada.'
-          : `${count} divergencias detectadas.`}
+        Divergencia principal detectada. Confira o destaque na imagem e a auditoria
+        abaixo.
       </div>
     )
   }

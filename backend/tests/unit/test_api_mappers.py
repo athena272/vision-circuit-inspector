@@ -50,6 +50,21 @@ def test_to_compare_response_maps_result_and_dimensions() -> None:
     assert response.test_height == 480
     assert len(response.differences) == 1
     assert response.differences[0].kind == "mismatched"
+    assert response.primary_difference is not None
+    assert response.single_error_mode is True
+
+
+def test_to_compare_response_all_mode_returns_everything() -> None:
+    result = RegisteredResult(
+        differences=(
+            _difference(salience=500.0),
+            _difference(kind="extra", label="b", salience=50.0),
+        ),
+        matched_count=1,
+    )
+    response = to_compare_response(result, 100, 100, single_error=False)
+    assert len(response.differences) == 2
+    assert response.single_error_mode is False
 
 
 def test_to_compare_response_is_match_when_no_differences() -> None:

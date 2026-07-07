@@ -240,3 +240,149 @@
   background: #fce8e6;
   color: #7a1c12;
 }
+
+/* Progresso da comparacao */
+.compare-progress {
+  padding: 1rem 1.1rem;
+  border-radius: 10px;
+  background: #e8f0fe;
+  margin-bottom: 1.5rem;
+}
+
+.compare-progress__header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.compare-progress__bar {
+  height: 8px;
+  background: #c5d7f5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.compare-progress__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.compare-progress__description,
+.compare-progress__eta {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.compare-progress__preview {
+  display: block;
+  max-width: 100%;
+  margin-top: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+/* Auditoria do pipeline */
+.pipeline-audit {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.pipeline-audit h2 {
+  margin: 0 0 0.35rem;
+}
+
+.pipeline-audit__intro {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.pipeline-audit__layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 760px) {
+  .pipeline-audit__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pipeline-audit__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pipeline-audit__step {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.pipeline-audit__step--active {
+  border-color: var(--accent);
+  background: #eef4ff;
+}
+
+.pipeline-audit__step-num {
+  flex: 0 0 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pipeline-audit__detail h3 {
+  margin: 0 0 0.35rem;
+}
+
+.pipeline-audit__detail p {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+}
+
+.pipeline-audit__detail img {
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.results__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.results__toggle {
+  align-self: flex-start;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.results__toggle:hover {
+  border-color: var(--accent);
+}

@@ -82,3 +82,32 @@ def test_compare_requires_both_fields(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_compare_stream_emits_steps_and_complete(client: TestClient) -> None:
+    board = build_board(default_circuit())
+    png = _png_bytes(board.image)
+
+    with client.stream(
+        "POST",
+        "/api/compare/stream",
+        files={
+            "reference": ("ref.png", png, "image/png"),
+            "test": ("test.png", png, "image/png"),
+        },
+    ) as response:
+        assert response.status_code == 200
+        events: list[dict] = []
+        for line in response.iter_lines():
+            if not line or not line.startswith("data: "):
+                continue
+            import json
+
+            events.append(json.loads(line.removeprefix("data: ")))
+
+    step_events = [e for e in events if e.get("type") == "step"]
+    complete = next(e for e in events if e.get("type") == "complete")
+    assert len(step_events) == 6
+    assert complete["percent"] == 100
+    assert complete["result"]["is_match"] is True
+

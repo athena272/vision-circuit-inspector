@@ -1,27 +1,22 @@
-"""Aplicacao FastAPI da inspecao de circuitos.
-
-Expoe o modo de registro automatico (zero clique) como uma API HTTP. Os
-endpoints sao finos: validam a entrada, delegam ao pipeline e serializam a
-saida. Toda a logica de visao continua no nucleo (`circuit_inspector.*`).
-"""
+"""Aplicacao FastAPI da inspecao de circuitos."""
 
 from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from ..board.registration import RegistrationError
+from ..comparison.registered_audit import compare_registered_with_audit
 from ..io.image_loader import ImageLoadError, decode_bgr
-from ..pipeline import inspect_registered_images
 from .mappers import to_compare_response
 from .schemas import CompareResponse, HealthResponse
+from .streaming import stream_compare_events
 
-# Origens liberadas no CORS. Em dev, o Vite roda em 5173; sobrescrevivel por env
-# (lista separada por virgula) para outros ambientes.
 _DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
-_MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB por imagem.
+_MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 def _allowed_origins() -> list[str]:
@@ -32,7 +27,6 @@ def _allowed_origins() -> list[str]:
 
 
 async def _read_image(upload: UploadFile, field: str):
-    """Le e decodifica um upload em matriz BGR, validando tipo e tamanho."""
     if upload.content_type and not upload.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -56,10 +50,9 @@ async def _read_image(upload: UploadFile, field: str):
 
 
 def create_app() -> FastAPI:
-    """Cria e configura a aplicacao FastAPI."""
     app = FastAPI(
         title="Circuit Inspector API",
-        version="0.1.0",
+        version="0.2.0",
         summary="Comparacao por visao computacional de circuitos em protoboard.",
     )
 
@@ -78,12 +71,14 @@ def create_app() -> FastAPI:
     async def compare(
         reference: UploadFile = File(description="Foto do gabarito."),
         test: UploadFile = File(description="Foto do circuito do aluno."),
+        all: bool = Query(False, description="Retorna todas as divergencias (debug)."),
+        include_audit: bool = Query(False, description="Inclui imagens das 6 etapas."),
     ) -> CompareResponse:
         reference_bgr = await _read_image(reference, "reference")
         test_bgr = await _read_image(test, "test")
 
         try:
-            inspection = inspect_registered_images(reference_bgr, test_bgr)
+            audit = compare_registered_with_audit(reference_bgr, test_bgr)
         except RegistrationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -94,7 +89,47 @@ def create_app() -> FastAPI:
             ) from exc
 
         height, width = test_bgr.shape[:2]
-        return to_compare_response(inspection.result, width, height)
+        return to_compare_response(
+            audit.result,
+            width,
+            height,
+            single_error=not all,
+            audit=audit if include_audit else None,
+        )
+
+    @app.post("/api/compare/stream", tags=["inspection"])
+    async def compare_stream(
+        reference: UploadFile = File(description="Foto do gabarito."),
+        test: UploadFile = File(description="Foto do circuito do aluno."),
+        all: bool = Query(False, description="Retorna todas as divergencias (debug)."),
+    ) -> StreamingResponse:
+        reference_bgr = await _read_image(reference, "reference")
+        test_bgr = await _read_image(test, "test")
+
+        async def event_generator():
+            try:
+                async for event in stream_compare_events(
+                    reference_bgr, test_bgr, single_error=not all
+                ):
+                    yield event
+            except RegistrationError as exc:
+                from .streaming import _sse_event
+
+                yield _sse_event(
+                    {
+                        "type": "error",
+                        "message": (
+                            "Nao foi possivel alinhar as duas fotos. "
+                            f"({exc})"
+                        ),
+                    }
+                )
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
 
@@ -103,7 +138,6 @@ app = create_app()
 
 
 def run() -> None:
-    """Sobe o servidor de desenvolvimento (entry point `circuit-inspector-api`)."""
     import uvicorn
 
     host = os.getenv("CIRCUIT_INSPECTOR_HOST", "127.0.0.1")
