@@ -5,16 +5,32 @@ import { ImageInput } from './components/ImageInput'
 import { ResultOverlay } from './components/ResultOverlay'
 import { DifferenceList } from './components/DifferenceList'
 import { StatusBanner } from './components/StatusBanner'
+import { PipelineAudit } from './components/PipelineAudit'
 import { useCompare } from './hooks/useCompare'
 import { useObjectUrl } from './hooks/useObjectUrl'
 
 function App() {
   const [reference, setReference] = useState<File | null>(null)
   const [test, setTest] = useState<File | null>(null)
-  const { status, result, error, compare, reset } = useCompare()
+  const {
+    status,
+    result,
+    audit,
+    error,
+    progress,
+    activeDifferences,
+    compare,
+    reset,
+    toggleShowAll,
+    showAllDifferences,
+  } = useCompare()
 
   const testUrl = useObjectUrl(test)
   const canCompare = reference !== null && test !== null && status !== 'loading'
+  const auditSteps = audit.length > 0 ? audit : (result?.audit ?? [])
+  const hasMultiple =
+    (result?.all_differences.length ?? 0) > 1 ||
+    (result?.differences.length ?? 0) > 1
 
   const handleSelect = (setter: (file: File | null) => void) => (file: File | null) => {
     setter(file)
@@ -34,8 +50,8 @@ function App() {
       <header className="app__header">
         <h1>Circuit Inspector</h1>
         <p>
-          Compare a foto do gabarito com a do circuito do aluno e veja as
-          divergencias destacadas automaticamente.
+          Compare a foto do gabarito com a do circuito do aluno. O sistema mostra
+          cada etapa do processamento e destaca a divergencia principal.
         </p>
       </header>
 
@@ -65,18 +81,39 @@ function App() {
         </button>
       </div>
 
-      <StatusBanner status={status} result={result} error={error} />
+      <StatusBanner
+        status={status}
+        result={result}
+        error={error}
+        progress={progress}
+      />
 
       {status === 'success' && result && testUrl && (
-        <section className="results">
-          <ResultOverlay
-            imageUrl={testUrl}
-            differences={result.differences}
-            naturalWidth={result.test_width}
-            naturalHeight={result.test_height}
-          />
-          <DifferenceList differences={result.differences} />
-        </section>
+        <>
+          <section className="results">
+            <ResultOverlay
+              imageUrl={testUrl}
+              differences={activeDifferences}
+              naturalWidth={result.test_width}
+              naturalHeight={result.test_height}
+            />
+            <div className="results__sidebar">
+              <DifferenceList differences={activeDifferences} />
+              {hasMultiple && (
+                <button
+                  type="button"
+                  className="results__toggle"
+                  onClick={toggleShowAll}
+                >
+                  {showAllDifferences
+                    ? 'Mostrar apenas a divergencia principal'
+                    : `Ver todas as divergencias (${result.all_differences.length})`}
+                </button>
+              )}
+            </div>
+          </section>
+          {auditSteps.length > 0 && <PipelineAudit steps={auditSteps} />}
+        </>
       )}
     </main>
   )
