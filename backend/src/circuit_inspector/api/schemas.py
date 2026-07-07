@@ -1,46 +1,43 @@
-"""Contratos (DTOs) da API HTTP.
-
-Modelos Pydantic que definem o formato de resposta publico, isolando o resto do
-sistema das estruturas internas do dominio (`RegisteredResult` etc.).
-"""
+"""Contratos (DTOs) da API HTTP."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-# Caixa em pixels da imagem do aluno: (x0, y0, x1, y1).
 BoxDTO = tuple[int, int, int, int]
 
 
 class DifferenceDTO(BaseModel):
-    """Uma diferenca localizada entre gabarito e aluno."""
+    kind: str
+    label: str
+    detail: str
+    expected_box: BoxDTO | None = None
+    actual_box: BoxDTO | None = None
+    salience: float
 
-    kind: str = Field(description="'mismatched' | 'missing' | 'extra'.")
-    label: str = Field(description="Rotulo da regiao (ex.: 'componente azul').")
-    detail: str = Field(description="Descricao legivel da divergencia.")
-    expected_box: BoxDTO | None = Field(
-        default=None, description="Posicao no gabarito (verde), se houver."
-    )
-    actual_box: BoxDTO | None = Field(
-        default=None, description="Posicao no aluno (vermelho), se houver."
-    )
-    salience: float = Field(description="Quanto maior, mais relevante a divergencia.")
+
+class PipelineStepDTO(BaseModel):
+    id: int
+    title: str
+    description: str
+    image_data_url: str
+    duration_ms: int
 
 
 class CompareResponse(BaseModel):
-    """Resultado da comparacao por registro automatico."""
-
-    is_match: bool = Field(description="True quando nenhuma divergencia foi detectada.")
-    matched_count: int = Field(description="Componentes presentes em ambas as fotos.")
-    test_width: int = Field(description="Largura (px) da imagem do aluno.")
-    test_height: int = Field(description="Altura (px) da imagem do aluno.")
-    differences: list[DifferenceDTO] = Field(
+    is_match: bool
+    matched_count: int
+    test_width: int
+    test_height: int
+    single_error_mode: bool = True
+    primary_difference: DifferenceDTO | None = None
+    differences: list[DifferenceDTO] = Field(default_factory=list)
+    all_differences: list[DifferenceDTO] = Field(
         default_factory=list,
-        description="Divergencias ordenadas da mais para a menos saliente.",
+        description="Todas as divergencias detectadas (antes do filtro um-erro).",
     )
+    audit: list[PipelineStepDTO] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
-    """Resposta do healthcheck."""
-
     status: str = "ok"
